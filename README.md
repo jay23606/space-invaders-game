@@ -23,3 +23,9 @@ A classic Space Invaders game with lobby interface built with HTML, CSS, and Jav
 
 ## Live Demo
 The game is deployed at: https://jay23606.github.io/space-invaders-game/
+
+## Implementation Details
+This implementation uses plain JavaScript with HTML5 Canvas for rendering. The code structure follows the same pattern as your pool-masters game:
+- Single HTML file with embedded CSS and JavaScript
+- No external dependencies
+- Pure client-side implementation
