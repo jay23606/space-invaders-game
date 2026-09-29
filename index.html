@@ -10,11 +10,11 @@
 <body>
 <main id="gameContainer">
 <section id="lobby" class="screen">
-<p class="eyebrow">DEFEND THE GALAXY</p><h1 id="gameTitle">SPACE INVADERS</h1>
-<p class="tagline">Survive the waves. Chase the high score.</p>
+<p class="eyebrow">DEFEND THE GALAXY</p><h1 id="gameTitle">SPACE INVADERS</h1><p class="tagline">Survive the waves. Chase the high score.</p>
 <div class="controls"><button id="startBtn">START GAME</button><button id="instructionsBtn" class="secondary">HOW TO PLAY</button></div>
 <section class="multiplayer"><h2>OPTIONAL ONLINE CO-OP</h2><p class="muted">WebRTC gameplay with Supabase room signaling. No offer/answer codes.</p>
 <div class="multiplayer-actions"><button id="hostBtn" class="secondary">CREATE ROOM</button><button id="joinBtn" class="secondary">JOIN ROOM</button></div>
+<div class="room-directory"><div class="room-directory-header"><h3>OPEN ROOMS</h3><button id="refreshRoomsBtn" class="secondary refresh-button" type="button">REFRESH</button></div><p id="roomListStatus" class="room-list-status">Loading open rooms…</p><ul id="roomList" class="room-list" aria-live="polite"></ul></div>
 <div id="roomPanel" class="hidden"><label for="roomBox">Room ID</label><input id="roomBox" autocomplete="off" placeholder="Enter room ID"><div class="multiplayer-actions"><button id="roomActionBtn">JOIN</button><button id="copyRoomBtn" class="secondary">COPY ROOM ID</button></div></div>
 <p id="connectionStatus" class="status" aria-live="polite">Solo mode</p></section>
 <p id="highScore" class="high-score">High score: 0</p>
@@ -24,5 +24,6 @@
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>window.SUPABASE_URL='https://zbtgonklxweikgukzukg.supabase.co';window.SUPABASE_KEY='sb_publishable_Tpkd3FzWhsfldMll-gIqfg_74YVroef';</script>
-<script src="game.js"></script>
-</body></html>
+<script src="game.js"></script><script src="room-list.js"></script>
+</body>
+</html>
