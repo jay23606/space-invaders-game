@@ -1,31 +1,20 @@
 # Space Invaders Game
 
-A classic Space Invaders game with lobby interface built with HTML, CSS, and JavaScript.
+A browser Space Invaders game with optional two-player WebRTC co-op. Gameplay is peer-to-peer; Supabase stores short-lived room and WebRTC signaling records.
 
-## Features
-- Player spaceship movement (left/right arrow keys)
-- Shooting mechanics (spacebar)
-- Enemy aliens that move in formation
-- Score tracking and lives system
-- Win/lose conditions
-- Responsive lobby menu with instructions
+## Multiplayer
 
-## How to Play
-1. Click "START GAME" to begin
-2. Use left/right arrow keys to move your spaceship
-3. Press spacebar to fire lasers
-4. Destroy all aliens to win, avoid getting hit by enemies
+1. Player 1 clicks **CREATE ROOM** and shares the six-character room ID.
+2. Player 2 clicks **JOIN ROOM**, enters the ID, and clicks **JOIN**.
+3. Supabase Realtime delivers the offer/answer signaling messages.
+4. The browsers establish a direct WebRTC data channel; Supabase is not involved in gameplay.
 
-## Repository Structure
-- `index.html` - Main game HTML structure
-- `style.css` - Visual styling
-- `game.js` - Game logic and mechanics
+Rooms expire after 30 minutes. Signaling tables use the `si_` prefix and are protected by RLS.
+
+## Development
+
+The frontend is static and can be hosted on GitHub Pages. Supabase project configuration is embedded using the public project URL and publishable key. The publishable key is intended for browser use; no service-role key belongs in this repository.
 
 ## Live Demo
-The game is deployed at: https://jay23606.github.io/space-invaders-game/
 
-## Implementation Details
-This implementation uses plain JavaScript with HTML5 Canvas for rendering. The code structure follows the same pattern as your pool-masters game:
-- Single HTML file with embedded CSS and JavaScript
-- No external dependencies
-- Pure client-side implementation
+https://jay23606.github.io/space-invaders-game/

@@ -1,62 +1,26 @@
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-const $ = id => document.getElementById(id);
-const ui = { lobby: $('lobby'), game: $('gameScreen'), over: $('gameOver'), score: $('score'), lives: $('lives'), level: $('level'), final: $('finalScore'), status: $('connectionStatus'), signal: $('signalBox'), label: $('signalLabel'), actions: $('signalActions'), pause: $('pauseOverlay') };
-let mode = 'solo', state = 'lobby', score = 0, lives = 3, wave = 1, enemies = [], bullets = [], players = [], keys = {}, raf = 0, paused = false, last = 0, peer = null, channel = null;
-const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-
-function status(text) { ui.status.textContent = text; }
-function setSignalMode(joining) { ui.signal.classList.remove('hidden'); ui.label.classList.remove('hidden'); ui.actions.classList.remove('hidden'); $('connectBtn').textContent = joining ? 'CONNECT' : 'SET ANSWER'; status(joining ? 'Paste the host code, then connect.' : 'Share your host code. Paste the guest code afterward.'); }
-function encode(value) { return btoa(unescape(encodeURIComponent(JSON.stringify(value)))); }
-function decode(value) { return JSON.parse(decodeURIComponent(escape(atob(value.trim())))); }
-async function waitForIce(pc) { if (pc.iceGatheringState === 'complete') return; await new Promise(resolve => { const done = () => { if (pc.iceGatheringState === 'complete') { pc.removeEventListener('icegatheringstatechange', done); resolve(); } }; pc.addEventListener('icegatheringstatechange', done); setTimeout(resolve, 5000); }); }
-function makePeer(host) {
-    peer = new RTCPeerConnection(ICE);
-    peer.onconnectionstatechange = () => { if (['failed', 'disconnected', 'closed'].includes(peer.connectionState)) status('Peer disconnected.'); };
-    if (host) {
-        channel = peer.createDataChannel('invaders');
-        setupChannel();
-    } else peer.ondatachannel = event => { channel = event.channel; setupChannel(); };
-    return peer;
-}
-function setupChannel() {
-    channel.onopen = () => { status('Connected! Two-player co-op ready.'); if (mode === 'guest') channel.send(JSON.stringify({ type: 'ready' })); };
-    channel.onmessage = event => { const msg = JSON.parse(event.data); if (mode === 'host') { if (msg.type === 'input') { players[1].left = msg.left; players[1].right = msg.right; } if (msg.type === 'fire') fire(1); } else if (msg.type === 'state') applyState(msg); };
-}
-async function hostGame() { mode = 'host'; makePeer(true); const offer = await peer.createOffer(); await peer.setLocalDescription(offer); await waitForIce(peer); ui.signal.value = encode(peer.localDescription); setSignalMode(false); }
-async function joinGame() { mode = 'guest'; makePeer(false); setSignalMode(true); }
-async function connectSignal() {
-    try {
-        const signal = decode(ui.signal.value);
-        if (mode === 'guest') { await peer.setRemoteDescription(signal); const answer = await peer.createAnswer(); await peer.setLocalDescription(answer); await waitForIce(peer); ui.signal.value = encode(peer.localDescription); status('Share this answer code with the host.'); }
-        else { await peer.setRemoteDescription(signal); status('Connecting to guest…'); }
-    } catch (error) { status('Invalid connection code. Copy it exactly.'); }
-}
-async function copySignal() { try { await navigator.clipboard.writeText(ui.signal.value); status('Connection code copied.'); } catch { status('Select and copy the connection code manually.'); } }
-function initEnemies() { enemies = []; for (let r = 0; r < 5; r++) for (let c = 0; c < 10; c++) enemies.push({ x: 50 + c * 60, y: 55 + r * 45, w: 40, h: 28 }); }
-function startGame() { state = 'playing'; paused = false; score = 0; lives = 3; wave = 1; bullets = []; players = [{ x: 250, y: 545, color: '#50f5a9', left: false, right: false }, ...(mode === 'host' && channel ? [{ x: 550, y: 545, color: '#5cc8ff', left: false, right: false }] : [])]; initEnemies(); ui.lobby.classList.add('hidden'); ui.game.classList.remove('hidden'); ui.over.classList.add('hidden'); updateUi(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); }
-function updateUi() { ui.score.textContent = `Score: ${score}`; ui.lives.textContent = `Lives: ${lives}`; ui.level.textContent = `Wave: ${wave}`; }
-function fire(player = 0) { if (state !== 'playing' || paused || !players[player]) return; const p = players[player]; if (bullets.filter(b => b.owner === player).length >= 3) return; bullets.push({ x: p.x + 21, y: p.y, owner: player }); }
-function hit(a, b) { return a.x < b.x + b.w && a.x + 4 > b.x && a.y < b.y + b.h && a.y + 15 > b.y; }
-function drawPlayer(p) { ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 42, 20); ctx.fillRect(p.x + 14, p.y - 10, 14, 10); }
-function applyState(msg) { if (state !== 'playing') startGame(); score = msg.score; lives = msg.lives; wave = msg.wave; enemies = msg.enemies; players = msg.players; bullets = msg.bullets; updateUi(); }
-function sendState() { if (channel?.readyState === 'open') channel.send(JSON.stringify({ type: 'state', score, lives, wave, enemies, bullets, players })); }
-function finish(won = false) { state = 'over'; cancelAnimationFrame(raf); ui.over.classList.remove('hidden'); $('gameOverTitle').textContent = won ? 'WAVE CLEAR!' : 'GAME OVER'; $('resultLabel').textContent = won ? 'MISSION COMPLETE' : 'MISSION FAILED'; ui.final.textContent = `Team score: ${score}`; }
-function loop(now) { if (state !== 'playing') return; const dt = Math.min((now - last) / 16.67, 2); last = now; if (!paused) { if (mode !== 'guest') update(dt); draw(); } raf = requestAnimationFrame(loop); }
-function update(dt) {
-    players.forEach((p, i) => { if (p.left) p.x -= 7 * dt; if (p.right) p.x += 7 * dt; p.x = Math.max(0, Math.min(canvas.width - 42, p.x)); });
-    bullets.forEach(b => b.y -= 11 * dt); bullets = bullets.filter(b => b.y > -20);
-    let edge = enemies.some(e => e.x <= 0 || e.x + e.w >= canvas.width); if (edge) enemies.forEach(e => { e.y += 18; });
-    const direction = edge ? -1 : 1; enemies.forEach(e => e.x += direction * (0.7 + wave * .12) * dt);
-    for (let i = bullets.length - 1; i >= 0; i--) for (let j = enemies.length - 1; j >= 0; j--) if (hit(bullets[i], enemies[j])) { score += 10; bullets.splice(i, 1); enemies.splice(j, 1); break; }
-    if (enemies.some(e => e.y + e.h >= players[0].y)) return finish();
-    if (!enemies.length) { wave++; initEnemies(); }
-    updateUi(); sendState();
-}
-function draw() { ctx.fillStyle = '#050816'; ctx.fillRect(0, 0, canvas.width, canvas.height); enemies.forEach((e, i) => { ctx.fillStyle = i % 2 ? '#ff6b9d' : '#ffcb6b'; ctx.fillRect(e.x, e.y, e.w, e.h); ctx.fillStyle = '#050816'; ctx.fillRect(e.x + 9, e.y + 8, 6, 6); ctx.fillRect(e.x + 25, e.y + 8, 6, 6); }); players.forEach(drawPlayer); bullets.forEach(b => { ctx.fillStyle = b.owner ? '#5cc8ff' : '#50f5a9'; ctx.fillRect(b.x, b.y, 4, 15); }); }
-function togglePause() { if (state !== 'playing') return; paused = !paused; ui.pause.classList.toggle('hidden', !paused); $('pauseBtn').textContent = paused ? 'Resume' : 'Pause'; }
-function setKey(key, value) { const k = key.toLowerCase(); if (mode === 'guest') { if (['arrowleft', 'a'].includes(k)) players[0].left = value; if (['arrowright', 'd'].includes(k)) players[0].right = value; if (channel?.readyState === 'open') channel.send(JSON.stringify({ type: 'input', left: players[0].left, right: players[0].right })); } else { if (['arrowleft', 'a'].includes(k)) players[0].left = value; if (['arrowright', 'd'].includes(k)) players[0].right = value; } }
-document.addEventListener('keydown', e => { if (e.repeat) return; if (e.key.toLowerCase() === 'p') return togglePause(); setKey(e.key, true); if (e.code === 'Space') { e.preventDefault(); mode === 'guest' ? channel?.send(JSON.stringify({ type: 'fire' })) : fire(0); } });
-document.addEventListener('keyup', e => setKey(e.key, false));
-$('startBtn').onclick = () => { mode = 'solo'; startGame(); }; $('hostBtn').onclick = hostGame; $('joinBtn').onclick = joinGame; $('connectBtn').onclick = connectSignal; $('copySignalBtn').onclick = copySignal; $('instructionsBtn').onclick = () => $('instructions').classList.remove('hidden'); $('closeInstructions').onclick = () => $('instructions').classList.add('hidden'); $('pauseBtn').onclick = togglePause; $('resumeBtn').onclick = togglePause; $('restartBtn').onclick = startGame; $('menuBtn').onclick = () => { state = 'lobby'; ui.game.classList.add('hidden'); ui.lobby.classList.remove('hidden'); };
-[['leftBtn', 'ArrowLeft'], ['rightBtn', 'ArrowRight']].forEach(([id, key]) => { const b = $(id); b.onpointerdown = () => setKey(key, true); b.onpointerup = b.onpointercancel = () => setKey(key, false); }); $('fireBtn').onpointerdown = () => mode === 'guest' ? channel?.send(JSON.stringify({ type: 'fire' })) : fire(0);
+const canvas=document.getElementById('gameCanvas'),ctx=canvas.getContext('2d'),$=id=>document.getElementById(id);
+const ui={lobby:$('lobby'),game:$('gameScreen'),over:$('gameOver'),score:$('score'),lives:$('lives'),level:$('level'),final:$('finalScore'),status:$('connectionStatus'),room:$('roomBox'),panel:$('roomPanel'),action:$('roomActionBtn'),pause:$('pauseOverlay')};
+const db=window.supabase.createClient(window.SUPABASE_URL,window.SUPABASE_KEY);const ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+let mode='solo',state='lobby',score=0,lives=3,wave=1,enemies=[],bullets=[],players=[],keys={},raf=0,paused=false,last=0,peer=null,channel=null,roomId='',signalChannel=null,answerSeen=false;
+const say=t=>ui.status.textContent=t, wait=ms=>new Promise(r=>setTimeout(r,ms));
+function roomCode(){return Math.random().toString(36).slice(2,8).toUpperCase()}
+async function signal(kind,payload,sender){const{error}=await db.from('si_signals').insert({room_id:roomId,kind,sender,payload});if(error)throw error}
+function watchRoom(){if(signalChannel)return;signalChannel=db.channel('si-room-'+roomId).on('postgres_changes',{event:'INSERT',schema:'public',table:'si_signals',filter:'room_id=eq.'+roomId},async({new:msg})=>{if(msg.sender===mode)return;if(msg.kind==='answer'&&mode==='host'&&!answerSeen){answerSeen=true;await peer.setRemoteDescription(msg.payload);say('Connected to guest. Click START GAME.')} }).subscribe()}
+async function waitIce(){if(peer.iceGatheringState==='complete')return;await new Promise(resolve=>{const f=()=>{if(peer.iceGatheringState==='complete'){peer.removeEventListener('icegatheringstatechange',f);resolve()}};peer.addEventListener('icegatheringstatechange',f);setTimeout(resolve,5000)})}
+function setupPeer(host){peer=new RTCPeerConnection(ICE);peer.onconnectionstatechange=()=>{if(['failed','disconnected','closed'].includes(peer.connectionState))say('Peer disconnected.')};if(host){channel=peer.createDataChannel('invaders');setupChannel()}else peer.ondatachannel=e=>{channel=e.channel;setupChannel()}}
+function setupChannel(){channel.onopen=()=>say('Connected! Two-player co-op ready.');channel.onmessage=e=>{const m=JSON.parse(e.data);if(mode==='host'){if(m.type==='input'&&players[1]){players[1].left=m.left;players[1].right=m.right}if(m.type==='fire')fire(1)}else if(m.type==='state')applyState(m)}}
+async function hostGame(){try{mode='host';roomId=roomCode();const{error}=await db.from('si_rooms').insert({id:roomId});if(error)throw error;setupPeer(true);watchRoom();const offer=await peer.createOffer();await peer.setLocalDescription(offer);await waitIce();await signal('offer',peer.localDescription,'host');ui.room.value=roomId;ui.panel.classList.remove('hidden');ui.action.textContent='WAITING FOR PLAYER';say('Share room ID '+roomId+' with your friend.')}catch(e){say('Could not create room: '+e.message)}}
+async function joinGame(){mode='guest';ui.panel.classList.remove('hidden');ui.action.textContent='JOIN';ui.room.focus();say('Enter the room ID shared by the host.')}
+async function connectRoom(){try{roomId=ui.room.value.trim().toUpperCase();if(!/^[A-Z0-9]{6}$/.test(roomId))throw Error('Enter a valid 6-character room ID.');const{data:room,error}=await db.from('si_rooms').select('id').eq('id',roomId).gt('expires_at',new Date().toISOString()).maybeSingle();if(error||!room)throw Error('Room not found or expired.');setupPeer(false);watchRoom();let offer=null;for(let i=0;i<30&&!offer;i++){const{data}=await db.from('si_signals').select('payload').eq('room_id',roomId).eq('kind','offer').order('created_at',{ascending:false}).limit(1).maybeSingle();offer=data?.payload||null;if(!offer)await wait(500)}if(!offer)throw Error('Host offer not available.');await peer.setRemoteDescription(offer);const answer=await peer.createAnswer();await peer.setLocalDescription(answer);await waitIce();await signal('answer',peer.localDescription,'guest');say('Connected. Waiting for the host to start.')}catch(e){say(e.message)}}
+async function copyRoom(){try{await navigator.clipboard.writeText(ui.room.value);say('Room ID copied.')}catch{say('Select the room ID and copy it manually.')}}
+function initEnemies(){enemies=[];for(let r=0;r<5;r++)for(let c=0;c<10;c++)enemies.push({x:50+c*60,y:55+r*45,w:40,h:28})}
+function startGame(){state='playing';paused=false;score=0;lives=3;wave=1;bullets=[];players=[{x:250,y:545,color:'#50f5a9',left:false,right:false},...(mode==='host'&&channel?[{x:550,y:545,color:'#5cc8ff',left:false,right:false}]:[])];initEnemies();ui.lobby.classList.add('hidden');ui.game.classList.remove('hidden');ui.over.classList.add('hidden');updateUI();cancelAnimationFrame(raf);last=performance.now();raf=requestAnimationFrame(loop)}
+function updateUI(){ui.score.textContent=`Score: ${score}`;ui.lives.textContent=`Lives: ${lives}`;ui.level.textContent=`Wave: ${wave}`}
+function fire(i=0){if(state!=='playing'||paused||!players[i])return;const p=players[i];if(i===1&&mode==='guest')return;if(bullets.filter(b=>b.owner===i).length>=3)return;bullets.push({x:p.x+21,y:p.y,owner:i})}
+function hit(a,b){return a.x<b.x+b.w&&a.x+4>b.x&&a.y<b.y+b.h&&a.y+15>b.y}
+function applyState(m){if(state!=='playing')startGame();score=m.score;lives=m.lives;wave=m.wave;enemies=m.enemies;players=m.players;bullets=m.bullets;updateUI()}
+function draw(){ctx.fillStyle='#050816';ctx.fillRect(0,0,800,600);enemies.forEach(e=>{ctx.fillStyle='#ff6b9d';ctx.fillRect(e.x,e.y,e.w,e.h);ctx.fillStyle='#050816';ctx.fillRect(e.x+8,e.y+8,6,6);ctx.fillRect(e.x+26,e.y+8,6,6)});players.forEach(p=>{ctx.fillStyle=p.color;ctx.fillRect(p.x,p.y,42,20);ctx.fillRect(p.x+14,p.y-10,14,10)});bullets.forEach(b=>{ctx.fillStyle=b.owner?'#5cc8ff':'#50f5a9';ctx.fillRect(b.x,b.y,4,15)})}
+function loop(now){if(state!=='playing')return;const dt=Math.min((now-last)/16.67,2);last=now;if(!paused){players.forEach((p,i)=>{if(p.left)p.x=Math.max(0,p.x-7*dt);if(p.right)p.x=Math.min(758,p.x+7*dt)});if(mode==='guest'&&channel?.readyState==='open')channel.send(JSON.stringify({type:'input',left:!!keys.ArrowLeft||!!keys.a,right:!!keys.ArrowRight||!!keys.d}));if(mode==='host'){bullets.forEach(b=>b.y-=10*dt);bullets=bullets.filter(b=>b.y>-20);for(let i=bullets.length-1;i>=0;i--)for(let j=enemies.length-1;j>=0;j--)if(hit(bullets[i],enemies[j])){enemies.splice(j,1);bullets.splice(i,1);score+=10;break}if(!enemies.length){wave++;initEnemies();}if(channel?.readyState==='open')channel.send(JSON.stringify({type:'state',score,lives,wave,enemies,players,bullets}))}draw();updateUI()}raf=requestAnimationFrame(loop)}
+function togglePause(){paused=!paused;ui.pause.classList.toggle('hidden',!paused)}
+document.addEventListener('keydown',e=>{keys[e.key]=true;if(e.key===' '){e.preventDefault();if(mode==='guest'&&channel?.readyState==='open')channel.send(JSON.stringify({type:'fire'}));else fire(0)}if(e.key.toLowerCase()==='p')togglePause()});document.addEventListener('keyup',e=>keys[e.key]=false);
+$('startBtn').onclick=()=>{mode='solo';startGame()};$('hostBtn').onclick=hostGame;$('joinBtn').onclick=joinGame;ui.action.onclick=()=>mode==='guest'?connectRoom():say('Waiting for a guest…');$('copyRoomBtn').onclick=copyRoom;$('instructionsBtn').onclick=()=>$('instructions').classList.remove('hidden');$('closeInstructions').onclick=()=>$('instructions').classList.add('hidden');$('pauseBtn').onclick=togglePause;$('resumeBtn').onclick=togglePause;$('restartBtn').onclick=startGame;$('menuBtn').onclick=()=>location.reload();$('leftBtn').onpointerdown=()=>keys.ArrowLeft=true;$('leftBtn').onpointerup=()=>keys.ArrowLeft=false;$('rightBtn').onpointerdown=()=>keys.ArrowRight=true;$('rightBtn').onpointerup=()=>keys.ArrowRight=false;$('fireBtn').onclick=()=>fire(mode==='guest'?1:0);
