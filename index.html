@@ -3,38 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#050816">
     <title>Space Invaders</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="gameContainer">
-        <div id="lobby" class="screen">
-            <h1>SPACE INVADERS</h1>
+    <main id="gameContainer">
+        <section id="lobby" class="screen" aria-labelledby="gameTitle">
+            <p class="eyebrow">DEFEND THE GALAXY</p>
+            <h1 id="gameTitle">SPACE INVADERS</h1>
+            <p class="tagline">Survive the waves. Chase the high score.</p>
             <div class="controls">
-                <button id="startBtn">START GAME</button>
-                <button id="instructionsBtn">HOW TO PLAY</button>
+                <button id="startBtn" type="button">START GAME</button>
+                <button id="instructionsBtn" class="secondary" type="button">HOW TO PLAY</button>
             </div>
-            <div id="instructions" class="hidden">
-                <h2>HOW TO PLAY</h2>
-                <p>← → : Move spaceship</p>
-                <p>SPACEBAR : Fire laser</p>
-                <p>Destroy all aliens to win!</p>
-                <button id="closeInstructions">CLOSE</button>
+            <section id="multiplayer" class="multiplayer" aria-labelledby="multiplayerTitle">
+                <h2 id="multiplayerTitle">OPTIONAL ONLINE CO-OP</h2>
+                <p class="muted">Peer-to-peer WebRTC co-op. The host runs the shared game; no account or game server is required.</p>
+                <div class="multiplayer-actions">
+                    <button id="hostBtn" class="secondary" type="button">HOST GAME</button>
+                    <button id="joinBtn" class="secondary" type="button">JOIN GAME</button>
+                </div>
+                <label id="signalLabel" class="hidden" for="signalBox">Connection code</label>
+                <textarea id="signalBox" class="signal-box hidden" rows="4" placeholder="Paste the other player's connection code here"></textarea>
+                <div id="signalActions" class="multiplayer-actions hidden">
+                    <button id="copySignalBtn" class="secondary" type="button">COPY CODE</button>
+                    <button id="connectBtn" type="button">CONNECT</button>
+                </div>
+                <p id="connectionStatus" class="status" aria-live="polite">Solo mode</p>
+            </section>
+            <p id="highScore" class="high-score" aria-live="polite">High score: 0</p>
+            <div id="instructions" class="hidden" role="dialog" aria-labelledby="instructionsTitle">
+                <h2 id="instructionsTitle">HOW TO PLAY</h2>
+                <p><kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> <kbd>D</kbd> to move</p>
+                <p><kbd>SPACE</kbd> to fire · <kbd>P</kbd> to pause</p>
+                <p>Destroy every alien, then face a faster wave.</p>
+                <button id="closeInstructions" class="secondary" type="button">CLOSE</button>
             </div>
-        </div>
-        
-        <div id="gameScreen" class="screen hidden">
-            <div id="score">Score: 0</div>
-            <div id="lives">Lives: 3</div>
-            <canvas id="gameCanvas" width="800" height="600"></canvas>
-            <div id="gameOver" class="hidden">
-                <h2>GAME OVER</h2>
-                <p id="finalScore">Your Score: 0</p>
-                <button id="restartBtn">PLAY AGAIN</button>
+        </section>
+        <section id="gameScreen" class="screen hidden" aria-label="Game screen">
+            <div class="hud">
+                <span id="score">Score: 0</span><span id="level">Wave: 1</span><span id="lives">Lives: 3</span>
+                <button id="pauseBtn" class="hud-button" type="button">Pause</button>
             </div>
-        </div>
-    </div>
-    
+            <canvas id="gameCanvas" width="800" height="600" aria-label="Space Invaders game area"></canvas>
+            <div id="pauseOverlay" class="overlay hidden"><h2>PAUSED</h2><p>Press <kbd>P</kbd> or tap Resume.</p><button id="resumeBtn" type="button">RESUME</button></div>
+            <div class="touch-controls"><button id="leftBtn" type="button">◀</button><button id="fireBtn" type="button">FIRE</button><button id="rightBtn" type="button">▶</button></div>
+            <div id="gameOver" class="overlay hidden"><p id="resultLabel" class="eyebrow">MISSION COMPLETE</p><h2 id="gameOverTitle">GAME OVER</h2><p id="finalScore">Your score: 0</p><button id="restartBtn" type="button">PLAY AGAIN</button><button id="menuBtn" class="secondary" type="button">MAIN MENU</button></div>
+        </section>
+    </main>
     <script src="game.js"></script>
 </body>
 </html>

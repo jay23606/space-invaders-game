@@ -1,266 +1,62 @@
-// Game variables
-let canvas = document.getElementById('gameCanvas');
-let ctx = canvas.getContext('2d');
-let scoreElement = document.getElementById('score');
-let livesElement = document.getElementById('lives');
-let finalScoreElement = document.getElementById('finalScore');
-let lobbyScreen = document.getElementById('lobby');
-let gameScreen = document.getElementById('gameScreen');
-let gameOverScreen = document.getElementById('gameOver');
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+const ui = { lobby: $('lobby'), game: $('gameScreen'), over: $('gameOver'), score: $('score'), lives: $('lives'), level: $('level'), final: $('finalScore'), status: $('connectionStatus'), signal: $('signalBox'), label: $('signalLabel'), actions: $('signalActions'), pause: $('pauseOverlay') };
+let mode = 'solo', state = 'lobby', score = 0, lives = 3, wave = 1, enemies = [], bullets = [], players = [], keys = {}, raf = 0, paused = false, last = 0, peer = null, channel = null;
+const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-// Game states
-let gameState = 'lobby'; // lobby, playing, gameOver
-let score = 0;
-let lives = 3;
-
-// Player variables
-let player = {
-    x: canvas.width / 2 - 25,
-    y: canvas.height - 50,
-    width: 50,
-    height: 30,
-    speed: 7,
-    color: '#00ff00'
-};
-
-// Bullet variables
-let bullets = [];
-let bulletSpeed = 10;
-
-// Enemy variables
-let enemies = [];
-let enemyWidth = 40;
-let enemyHeight = 30;
-let enemySpeed = 1;
-let enemyDirection = 1;
-let enemyDropDistance = 20;
-
-// Game loop variables
-let animationId;
-
-// DOM elements
-const startBtn = document.getElementById('startBtn');
-const instructionsBtn = document.getElementById('instructionsBtn');
-const closeInstructions = document.getElementById('closeInstructions');
-const restartBtn = document.getElementById('restartBtn');
-
-// Event listeners
-startBtn.addEventListener('click', startGame);
-instructionsBtn.addEventListener('click', showInstructions);
-closeInstructions.addEventListener('click', hideInstructions);
-restartBtn.addEventListener('click', resetGame);
-
-// Keyboard input
-let keys = {};
-
-document.addEventListener('keydown', (e) => {
-    keys[e.key] = true;
-    
-    // Fire bullet with spacebar
-    if (e.key === ' ' && gameState === 'playing') {
-        fireBullet();
-    }
-});
-
-document.addEventListener('keyup', (e) => {
-    keys[e.key] = false;
-});
-
-// Initialize enemies
-function initEnemies() {
-    enemies = [];
-    const rows = 5;
-    const cols = 10;
-    const padding = 20;
-    
-    for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-            enemies.push({
-                x: col * (enemyWidth + padding) + 50,
-                y: row * (enemyHeight + padding) + 50,
-                width: enemyWidth,
-                height: enemyHeight,
-                color: '#ff0000'
-            });
-        }
-    }
+function status(text) { ui.status.textContent = text; }
+function setSignalMode(joining) { ui.signal.classList.remove('hidden'); ui.label.classList.remove('hidden'); ui.actions.classList.remove('hidden'); $('connectBtn').textContent = joining ? 'CONNECT' : 'SET ANSWER'; status(joining ? 'Paste the host code, then connect.' : 'Share your host code. Paste the guest code afterward.'); }
+function encode(value) { return btoa(unescape(encodeURIComponent(JSON.stringify(value)))); }
+function decode(value) { return JSON.parse(decodeURIComponent(escape(atob(value.trim())))); }
+async function waitForIce(pc) { if (pc.iceGatheringState === 'complete') return; await new Promise(resolve => { const done = () => { if (pc.iceGatheringState === 'complete') { pc.removeEventListener('icegatheringstatechange', done); resolve(); } }; pc.addEventListener('icegatheringstatechange', done); setTimeout(resolve, 5000); }); }
+function makePeer(host) {
+    peer = new RTCPeerConnection(ICE);
+    peer.onconnectionstatechange = () => { if (['failed', 'disconnected', 'closed'].includes(peer.connectionState)) status('Peer disconnected.'); };
+    if (host) {
+        channel = peer.createDataChannel('invaders');
+        setupChannel();
+    } else peer.ondatachannel = event => { channel = event.channel; setupChannel(); };
+    return peer;
 }
-
-// Start the game
-function startGame() {
-    gameState = 'playing';
-    lobbyScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
-    score = 0;
-    lives = 3;
-    updateUI();
-    initEnemies();
-    gameLoop();
+function setupChannel() {
+    channel.onopen = () => { status('Connected! Two-player co-op ready.'); if (mode === 'guest') channel.send(JSON.stringify({ type: 'ready' })); };
+    channel.onmessage = event => { const msg = JSON.parse(event.data); if (mode === 'host') { if (msg.type === 'input') { players[1].left = msg.left; players[1].right = msg.right; } if (msg.type === 'fire') fire(1); } else if (msg.type === 'state') applyState(msg); };
 }
-
-// Show instructions
-function showInstructions() {
-    document.getElementById('instructions').classList.remove('hidden');
+async function hostGame() { mode = 'host'; makePeer(true); const offer = await peer.createOffer(); await peer.setLocalDescription(offer); await waitForIce(peer); ui.signal.value = encode(peer.localDescription); setSignalMode(false); }
+async function joinGame() { mode = 'guest'; makePeer(false); setSignalMode(true); }
+async function connectSignal() {
+    try {
+        const signal = decode(ui.signal.value);
+        if (mode === 'guest') { await peer.setRemoteDescription(signal); const answer = await peer.createAnswer(); await peer.setLocalDescription(answer); await waitForIce(peer); ui.signal.value = encode(peer.localDescription); status('Share this answer code with the host.'); }
+        else { await peer.setRemoteDescription(signal); status('Connecting to guest…'); }
+    } catch (error) { status('Invalid connection code. Copy it exactly.'); }
 }
-
-// Hide instructions
-function hideInstructions() {
-    document.getElementById('instructions').classList.add('hidden');
+async function copySignal() { try { await navigator.clipboard.writeText(ui.signal.value); status('Connection code copied.'); } catch { status('Select and copy the connection code manually.'); } }
+function initEnemies() { enemies = []; for (let r = 0; r < 5; r++) for (let c = 0; c < 10; c++) enemies.push({ x: 50 + c * 60, y: 55 + r * 45, w: 40, h: 28 }); }
+function startGame() { state = 'playing'; paused = false; score = 0; lives = 3; wave = 1; bullets = []; players = [{ x: 250, y: 545, color: '#50f5a9', left: false, right: false }, ...(mode === 'host' && channel ? [{ x: 550, y: 545, color: '#5cc8ff', left: false, right: false }] : [])]; initEnemies(); ui.lobby.classList.add('hidden'); ui.game.classList.remove('hidden'); ui.over.classList.add('hidden'); updateUi(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); }
+function updateUi() { ui.score.textContent = `Score: ${score}`; ui.lives.textContent = `Lives: ${lives}`; ui.level.textContent = `Wave: ${wave}`; }
+function fire(player = 0) { if (state !== 'playing' || paused || !players[player]) return; const p = players[player]; if (bullets.filter(b => b.owner === player).length >= 3) return; bullets.push({ x: p.x + 21, y: p.y, owner: player }); }
+function hit(a, b) { return a.x < b.x + b.w && a.x + 4 > b.x && a.y < b.y + b.h && a.y + 15 > b.y; }
+function drawPlayer(p) { ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 42, 20); ctx.fillRect(p.x + 14, p.y - 10, 14, 10); }
+function applyState(msg) { if (state !== 'playing') startGame(); score = msg.score; lives = msg.lives; wave = msg.wave; enemies = msg.enemies; players = msg.players; bullets = msg.bullets; updateUi(); }
+function sendState() { if (channel?.readyState === 'open') channel.send(JSON.stringify({ type: 'state', score, lives, wave, enemies, bullets, players })); }
+function finish(won = false) { state = 'over'; cancelAnimationFrame(raf); ui.over.classList.remove('hidden'); $('gameOverTitle').textContent = won ? 'WAVE CLEAR!' : 'GAME OVER'; $('resultLabel').textContent = won ? 'MISSION COMPLETE' : 'MISSION FAILED'; ui.final.textContent = `Team score: ${score}`; }
+function loop(now) { if (state !== 'playing') return; const dt = Math.min((now - last) / 16.67, 2); last = now; if (!paused) { if (mode !== 'guest') update(dt); draw(); } raf = requestAnimationFrame(loop); }
+function update(dt) {
+    players.forEach((p, i) => { if (p.left) p.x -= 7 * dt; if (p.right) p.x += 7 * dt; p.x = Math.max(0, Math.min(canvas.width - 42, p.x)); });
+    bullets.forEach(b => b.y -= 11 * dt); bullets = bullets.filter(b => b.y > -20);
+    let edge = enemies.some(e => e.x <= 0 || e.x + e.w >= canvas.width); if (edge) enemies.forEach(e => { e.y += 18; });
+    const direction = edge ? -1 : 1; enemies.forEach(e => e.x += direction * (0.7 + wave * .12) * dt);
+    for (let i = bullets.length - 1; i >= 0; i--) for (let j = enemies.length - 1; j >= 0; j--) if (hit(bullets[i], enemies[j])) { score += 10; bullets.splice(i, 1); enemies.splice(j, 1); break; }
+    if (enemies.some(e => e.y + e.h >= players[0].y)) return finish();
+    if (!enemies.length) { wave++; initEnemies(); }
+    updateUi(); sendState();
 }
-
-// Fire a bullet
-function fireBullet() {
-    bullets.push({
-        x: player.x + player.width / 2 - 2,
-        y: player.y,
-        width: 4,
-        height: 15,
-        color: '#00ffff'
-    });
-}
-
-// Update UI elements
-function updateUI() {
-    scoreElement.textContent = `Score: ${score}`;
-    livesElement.textContent = `Lives: ${lives}`;
-}
-
-// Game over function
-function gameOver() {
-    gameState = 'gameOver';
-    cancelAnimationFrame(animationId);
-    finalScoreElement.textContent = `Your Score: ${score}`;
-    gameOverScreen.classList.remove('hidden');
-}
-
-// Reset game state
-function resetGame() {
-    gameOverScreen.classList.add('hidden');
-    startGame();
-}
-
-// Main game loop
-function gameLoop() {
-    if (gameState !== 'playing') return;
-    
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Move player
-    if (keys['ArrowLeft'] && player.x > 0) {
-        player.x -= player.speed;
-    }
-    if (keys['ArrowRight'] && player.x < canvas.width - player.width) {
-        player.x += player.speed;
-    }
-    
-    // Draw player
-    ctx.fillStyle = player.color;
-    ctx.fillRect(player.x, player.y, player.width, player.height);
-    
-    // Draw player details
-    ctx.fillStyle = '#00aa00';
-    ctx.fillRect(player.x + 10, player.y - 10, player.width - 20, 10);
-    
-    // Update and draw bullets
-    for (let i = bullets.length - 1; i >= 0; i--) {
-        bullets[i].y -= bulletSpeed;
-        
-        ctx.fillStyle = bullets[i].color;
-        ctx.fillRect(bullets[i].x, bullets[i].y, bullets[i].width, bullets[i].height);
-        
-        // Remove bullets that go off screen
-        if (bullets[i].y < 0) {
-            bullets.splice(i, 1);
-        }
-    }
-    
-    // Update and draw enemies
-    let moveDown = false;
-    
-    for (let i = enemies.length - 1; i >= 0; i--) {
-        enemies[i].x += enemySpeed * enemyDirection;
-        
-        // Check if enemy hits the edge
-        if (enemies[i].x <= 0 || enemies[i].x + enemies[i].width >= canvas.width) {
-            moveDown = true;
-        }
-        
-        // Draw enemy
-        ctx.fillStyle = enemies[i].color;
-        ctx.fillRect(enemies[i].x, enemies[i].y, enemies[i].width, enemies[i].height);
-        
-        // Enemy details (alien face)
-        ctx.fillStyle = '#000';
-        ctx.fillRect(enemies[i].x + 10, enemies[i].y + 8, 6, 6);
-        ctx.fillRect(enemies[i].x + enemyWidth - 16, enemies[i].y + 8, 6, 6);
-    }
-    
-    // Move enemies down if needed
-    if (moveDown) {
-        enemyDirection *= -1;
-        for (let i = 0; i < enemies.length; i++) {
-            enemies[i].y += enemyDropDistance;
-            
-            // Check if enemies reached the bottom
-            if (enemies[i].y + enemies[i].height > player.y) {
-                gameOver();
-                return;
-            }
-        }
-    }
-    
-    // Bullet-enemy collision detection
-    for (let i = bullets.length - 1; i >= 0; i--) {
-        for (let j = enemies.length - 1; j >= 0; j--) {
-            if (
-                bullets[i] &&
-                bullets[i].x < enemies[j].x + enemies[j].width &&
-                bullets[i].x + bullets[i].width > enemies[j].x &&
-                bullets[i].y < enemies[j].y + enemies[j].height &&
-                bullets[i].y + bullets[i].height > enemies[j].y
-            ) {
-                // Remove bullet and enemy on collision
-                bullets.splice(i, 1);
-                enemies.splice(j, 1);
-                score += 100;
-                updateUI();
-                
-                // Check if all enemies are destroyed
-                if (enemies.length === 0) {
-                    initEnemies();
-                }
-                break;
-            }
-        }
-    }
-    
-    // Player-enemy collision detection
-    for (let i = enemies.length - 1; i >= 0; i--) {
-        if (
-            player.x < enemies[i].x + enemies[i].width &&
-            player.x + player.width > enemies[i].x &&
-            player.y < enemies[i].y + enemies[i].height &&
-            player.y + player.height > enemies[i].y
-        ) {
-            // Player hit by enemy
-            lives--;
-            updateUI();
-            
-            if (lives <= 0) {
-                gameOver();
-                return;
-            }
-            
-            // Reset enemy position after collision
-            enemies.splice(i, 1);
-            initEnemies();
-        }
-    }
-    
-    // Continue game loop
-    animationId = requestAnimationFrame(gameLoop);
-}
-
-// Initialize the game
-initEnemies();
+function draw() { ctx.fillStyle = '#050816'; ctx.fillRect(0, 0, canvas.width, canvas.height); enemies.forEach((e, i) => { ctx.fillStyle = i % 2 ? '#ff6b9d' : '#ffcb6b'; ctx.fillRect(e.x, e.y, e.w, e.h); ctx.fillStyle = '#050816'; ctx.fillRect(e.x + 9, e.y + 8, 6, 6); ctx.fillRect(e.x + 25, e.y + 8, 6, 6); }); players.forEach(drawPlayer); bullets.forEach(b => { ctx.fillStyle = b.owner ? '#5cc8ff' : '#50f5a9'; ctx.fillRect(b.x, b.y, 4, 15); }); }
+function togglePause() { if (state !== 'playing') return; paused = !paused; ui.pause.classList.toggle('hidden', !paused); $('pauseBtn').textContent = paused ? 'Resume' : 'Pause'; }
+function setKey(key, value) { const k = key.toLowerCase(); if (mode === 'guest') { if (['arrowleft', 'a'].includes(k)) players[0].left = value; if (['arrowright', 'd'].includes(k)) players[0].right = value; if (channel?.readyState === 'open') channel.send(JSON.stringify({ type: 'input', left: players[0].left, right: players[0].right })); } else { if (['arrowleft', 'a'].includes(k)) players[0].left = value; if (['arrowright', 'd'].includes(k)) players[0].right = value; } }
+document.addEventListener('keydown', e => { if (e.repeat) return; if (e.key.toLowerCase() === 'p') return togglePause(); setKey(e.key, true); if (e.code === 'Space') { e.preventDefault(); mode === 'guest' ? channel?.send(JSON.stringify({ type: 'fire' })) : fire(0); } });
+document.addEventListener('keyup', e => setKey(e.key, false));
+$('startBtn').onclick = () => { mode = 'solo'; startGame(); }; $('hostBtn').onclick = hostGame; $('joinBtn').onclick = joinGame; $('connectBtn').onclick = connectSignal; $('copySignalBtn').onclick = copySignal; $('instructionsBtn').onclick = () => $('instructions').classList.remove('hidden'); $('closeInstructions').onclick = () => $('instructions').classList.add('hidden'); $('pauseBtn').onclick = togglePause; $('resumeBtn').onclick = togglePause; $('restartBtn').onclick = startGame; $('menuBtn').onclick = () => { state = 'lobby'; ui.game.classList.add('hidden'); ui.lobby.classList.remove('hidden'); };
+[['leftBtn', 'ArrowLeft'], ['rightBtn', 'ArrowRight']].forEach(([id, key]) => { const b = $(id); b.onpointerdown = () => setKey(key, true); b.onpointerup = b.onpointercancel = () => setKey(key, false); }); $('fireBtn').onpointerdown = () => mode === 'guest' ? channel?.send(JSON.stringify({ type: 'fire' })) : fire(0);
