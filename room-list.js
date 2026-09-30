@@ -17,6 +17,13 @@ function renderRooms(rooms) {
     rooms.forEach((room) => {
         const item = document.createElement('li');
         item.className = 'room-item';
+        const info = document.createElement('span');
+        info.className = 'room-info';
+        const name = document.createElement('strong');
+        name.textContent = room.name || 'Unnamed mission';
+        const meta = document.createElement('small');
+        meta.textContent = 'Waiting for a co-pilot';
+        info.append(name, meta);
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'room-join-button';
@@ -33,19 +40,18 @@ function renderRooms(rooms) {
                 button.textContent = 'JOIN';
             }
         });
-        const label = document.createElement('span');
-        label.textContent = `Room ${room.id}`;
-        item.append(label, button);
+        item.append(info, button);
         roomList.appendChild(item);
     });
 }
 
 async function loadRooms() {
     roomListStatus('Loading open rooms…');
-    const { data, error } = await db
-        .from('si_rooms')
-        .select('id, created_at')
+    const cutoff = new Date(Date.now() - 90000).toISOString();
+    const { data, error } = await db.from('si_rooms')
+        .select('id, name, created_at, last_seen_at')
         .gt('expires_at', new Date().toISOString())
+        .gt('last_seen_at', cutoff)
         .order('created_at', { ascending: false })
         .limit(20);
     if (error) {
@@ -60,4 +66,4 @@ loadRooms();
 roomListChannel = db.channel('si-room-list')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'si_rooms' }, loadRooms)
     .subscribe();
-setInterval(loadRooms, 30000);
+setInterval(loadRooms, 15000);
